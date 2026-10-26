@@ -3,8 +3,13 @@
 `scripts/` deploys to the game's `x64/scripts/` folder. With FF12's Lua Loader
 and its Mod Menu plugin, it adds an **Ivalice Together** page to Mod Config:
 
-- co-op on/off (the runtime's `ivalice-together.disabled` marker)
-- Player 2/3 characters and "start with all characters" (next game start)
+- **Co-op right now** (live): Off removes Player 2/3's pads and keyboard, which
+  the running co-op turns into normal AI party members with the native camera;
+  On restores exactly who was playing (kept in `coop/ingame-menu-away.json`)
+- load Ivalice Together at game start (the runtime's `ivalice-together.disabled`
+  marker, next start)
+- Player 2/3 characters (live when the character is in the active party, via
+  `session_config.json`) and "start with all characters" (next start)
 - each player's XInput pad and the keyboard-and-mouse owner
 - menu colors by character or by player
 - per-player battle menu sounds and the damage meter, including Reset

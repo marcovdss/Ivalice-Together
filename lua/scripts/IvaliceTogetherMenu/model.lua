@@ -621,6 +621,80 @@ return function(json, defaults)
     return displacedRole
   end
 
+  ---------------------------------------------------------------------------
+  -- Live co-op on/off. The runtime gives Player 2/3 manual control only while
+  -- they own a pad or the keyboard (configured_follower_control_mask) and
+  -- follows controller_config.json live; with neither follower playing it
+  -- drops follower movement and the shared camera (coop_lifecycle_flags).
+
+  M.AWAY_VERSION = 1
+
+  function M.followersPlaying(doc)
+    local view = M.readControllers(doc)
+    local playing = {}
+    for _, player in ipairs({"p2", "p3"}) do
+      playing[player] = view.devices[player] ~= nil or view.desktopOwner == player
+    end
+    return playing
+  end
+
+  -- Removes Player 2/3 input sources; returns the record needed to bring them
+  -- back, or nil when nobody was playing.
+  function M.sendFollowersAway(doc)
+    local view = M.readControllers(doc)
+    local playing = M.followersPlaying(doc)
+    if not playing.p2 and not playing.p3 then return nil end
+    local away = json.object()
+    json.set(away, "version", M.AWAY_VERSION)
+    for _, player in ipairs({"p2", "p3"}) do
+      json.set(away, player, assignmentValue(view.devices[player]))
+      if view.devices[player] ~= nil then M.assignController(doc, player, nil) end
+    end
+    local desktop = (view.desktopOwner == "p2" or view.desktopOwner == "p3") and view.desktopOwner or nil
+    json.set(away, "desktop", desktop or json.null)
+    if desktop then M.setDesktopOwner(doc, nil) end
+    return away
+  end
+
+  -- Restores a record from sendFollowersAway. Returns the players restored and
+  -- the reasons for any that could not be (Player 1's input is never taken).
+  function M.bringFollowersBack(doc, away)
+    if not json.isObject(away) or away.version ~= M.AWAY_VERSION then return {}, {"no saved co-op players"} end
+    local restored, skipped = {}, {}
+    for _, player in ipairs({"p2", "p3"}) do
+      local assignment = M.normalizeAssignment(away[player])
+      if assignment ~= nil then
+        local ok, reason = M.controllerChangeKeepsP1(doc, player, assignment)
+        if ok then
+          for _, other in ipairs(M.PLAYERS) do
+            if other ~= player and M.assignmentsOverlap(doc, M.normalizeAssignment(doc.devices[other]), assignment) then
+              ok, reason = false, "that pad is now used by Player " .. other:sub(2)
+            end
+          end
+        end
+        if ok then
+          -- Going away left the bindings untouched, so putting the device
+          -- back restores exactly what was there (no index rewrite).
+          json.set(doc.devices, player, assignmentValue(assignment))
+          restored[#restored + 1] = player
+        else
+          skipped[#skipped + 1] = "Player " .. player:sub(2) .. ": " .. reason
+        end
+      end
+    end
+    local desktop = away.desktop
+    if desktop == "p2" or desktop == "p3" then
+      local ok, reason = M.desktopChangeKeepsP1(doc, desktop)
+      if ok then
+        M.setDesktopOwner(doc, desktop)
+        restored[#restored + 1] = desktop .. " keyboard"
+      else
+        skipped[#skipped + 1] = reason
+      end
+    end
+    return restored, skipped
+  end
+
   function M.setDesktopOwner(doc, owner)
     assert(M.controllersEditable(doc), "controller config is not editable")
     assert(owner == nil or owner == "p1" or owner == "p2" or owner == "p3", "unknown player")

@@ -25,6 +25,8 @@ local FILES = {
   session = COOP .. "session_config.json",
 }
 local MARKER = COOP .. model.DISABLED_MARKER
+-- Page-owned record of who was playing before "Co-op right now: Off".
+local AWAY = COOP .. "ingame-menu-away.json"
 
 local function readText(path)
   local file = io.open(path, "rb")
@@ -106,8 +108,10 @@ local function buildSchema(level)
   local function divider(label) schema[#schema + 1] = {label = label, type = "divider"} end
 
   divider("Co-op")
-  row({id = "coopEnabled", label = "Ivalice Together", type = "toggle", options = {"Enabled", "Disabled"},
-    default = 0, help = "Turns co-op on or off." .. NEXT_START})
+  row({id = "coopLive", label = "Co-op right now", type = "toggle", options = {"On", "Off"}, default = 0,
+    help = "Off: Players 2 and 3 become normal AI party members and the camera returns to normal, at once. On: brings back whoever was playing. No restart."})
+  row({id = "coopEnabled", label = "Load at game start", type = "toggle", options = {"Yes", "No"},
+    default = 0, help = "Whether Ivalice Together starts with the game. To switch co-op mid-run, use Co-op right now." .. NEXT_START})
   row({id = "rosterAll", label = "Start with all characters", type = "toggle", options = ON_OFF, default = 0,
     help = "On: Vaan starts with Party, Gambits and the five allies unlocked. Off: characters join with the story." .. NEXT_START})
   -- Six names in a row run off the screen; carousels show one at a time.
@@ -229,6 +233,9 @@ local function refresh()
     local theme = model.readTheme((readDocument(FILES.theme)))
     local controllerDoc = readDocument(FILES.controller)
     setValue("coopEnabled", readText(MARKER) == nil and 0 or 1)
+    local playing = model.followersPlaying(controllerDoc)
+    setValue("coopLive", (playing.p2 or playing.p3) and 0 or 1)
+    setActive("coopLive", model.controllersEditable(controllerDoc))
     setValue("rosterAll", roster.startWithAll and 0 or 1)
     setValue("roster_p2", rosterIndex(roster.p2))
     setValue("roster_p3", rosterIndex(roster.p3))
@@ -276,6 +283,39 @@ local function editControllers(change)
 end
 
 local handlers = {}
+
+handlers.coopLive = function(value)
+  if value == 1 then
+    local away
+    editControllers(function(doc)
+      away = model.sendFollowersAway(doc)
+      -- Remember who was playing before their controls are removed; a failed
+      -- write aborts the change.
+      if away then
+        local ok, err = writeText(AWAY, json.encode(away))
+        if not ok then error("could not remember who was playing: " .. tostring(err), 0) end
+      end
+    end)
+    if away then print(PREFIX .. "co-op off: Players 2 and 3 are AI party members now.") end
+    return
+  end
+  -- Co-op is already on while anyone plays; a later Off replaces the record.
+  local playing = model.followersPlaying((readDocument(FILES.controller)))
+  if playing.p2 or playing.p3 then return end
+  local away = readDocument(AWAY)
+  if away == nil then
+    error("nobody to bring back; choose Player 2's or Player 3's controller below", 0)
+  end
+  local restored, skipped = {}, {}
+  editControllers(function(doc) restored, skipped = model.bringFollowersBack(doc, away) end)
+  for _, reason in ipairs(skipped) do print(PREFIX .. "co-op on: " .. reason) end
+  if #restored > 0 then
+    os.remove(AWAY)
+    print(PREFIX .. "co-op on: " .. table.concat(restored, ", ") .. " back.")
+  elseif #skipped == 0 then
+    error("nobody to bring back; choose Player 2's or Player 3's controller below", 0)
+  end
+end
 
 handlers.coopEnabled = function(value)
   if value == 0 then

@@ -192,6 +192,53 @@ class InGameMenuPageTests(unittest.TestCase):
         self.assertEqual(coop_roster.load(self.coop / "coop_roster_config.json").p3, coop_roster.PENELO_ID)
         self.assertFalse(path.exists())
 
+    def test_coop_switches_off_and_back_on_live(self) -> None:
+        lua = self.start()
+        g = lua.globals()
+        path = self.coop / "controller_config.json"
+        away = self.coop / "ingame-menu-away.json"
+        def sources():
+            config = controls.normalize_config(json.loads(path.read_text(encoding="utf-8")))
+            # coop_runtime.configured_follower_control_mask on the loaded config
+            return {p: config["devices"][p] is not None or controls.desktop_owner(config) == p for p in ("p2", "p3")}
+        g.choose("pad_p3", 3)  # P3 on Pad 3; P2 plays on the keyboard (default)
+        self.assertEqual(sources(), {"p2": True, "p3": True})
+        self.assertEqual(g.shown["coopLive"], 0)
+        g.choose("coopLive", 1)  # friends leave
+        self.assertEqual(sources(), {"p2": False, "p3": False})
+        config = controls.load_config(path)
+        self.assertEqual(config["devices"]["p1"], 0)  # Player 1 untouched
+        self.assertTrue(away.is_file())
+        self.assertEqual(g.shown["coopLive"], 1)
+        self.assertEqual(g.shown["pad_p3"], 0)
+        g.choose("coopLive", 0)  # they come back
+        config = controls.load_config(path)
+        self.assertEqual((config["devices"]["p3"], controls.desktop_owner(config)), (2, "p2"))
+        self.assertFalse(away.exists())
+        self.assertEqual(g.shown["coopLive"], 0)
+        g.choose("coopLive", 1)
+        g.choose("desktop", 1)  # meanwhile Player 1 takes the keyboard
+        g.choose("coopLive", 0)
+        config = controls.load_config(path)
+        self.assertEqual((config["devices"]["p3"], controls.desktop_owner(config)), (2, "p1"))
+        self.assertTrue(any("Player 1 uses the keyboard" in t for t in g.printed.values()))
+        g.choose("coopLive", 1)
+        g.choose("pad_p2", 3)  # while P3 is away, P2 picks up P3's pad: co-op is on again
+        self.assertEqual(g.shown["coopLive"], 0)
+        g.choose("coopLive", 0)  # nothing to do; P3's saved pad is not taken from P2
+        config = controls.load_config(path)
+        self.assertEqual((config["devices"]["p2"], config["devices"]["p3"]), (2, None))
+        g.choose("pad_p3", 3)  # P3 takes Pad 3 back by hand (P2 gets P3's none)
+        before = len(g.printed)
+        g.choose("coopLive", 0)  # already on: nothing happens
+        self.assertEqual(len(g.printed), before)
+        g.choose("pad_p3", 0)  # P3 leaves by hand; nobody is playing
+        (self.coop / "ingame-menu-away.json").unlink(missing_ok=True)  # and nothing is saved
+        self.assertEqual(g.shown["coopLive"], 1)
+        g.choose("coopLive", 0)
+        self.assertTrue(any("nobody to bring back" in t for t in g.printed.values()))
+        self.assertFalse([t for t in g.printed.values() if "refresh failed" in t])
+
     def test_player_one_never_loses_their_input(self) -> None:
         lua = self.start()
         g = lua.globals()
