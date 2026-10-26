@@ -30,6 +30,13 @@ pages, shown, active, callbacks, timers, printed, dialogs = {}, {}, {}, {}, {}, 
 addTableResults = addTableResults or {}
 modmenu = {
   addTable = function(page)
+    -- The real plugin caps a toggle at six options (ff12-modmenu.lua.dll).
+    for _, row in ipairs(page.schema) do
+      if row.type == "toggle" and #row.options > 6 then
+        printed[#printed + 1] = "Mod Menu: Rejected: Too many options for control: " .. row.id
+        return false
+      end
+    end
     local result = table.remove(addTableResults, 1)
     if result == nil then result = true end
     if result then pages[#pages + 1] = page end
@@ -190,6 +197,20 @@ class InGameMenuPageTests(unittest.TestCase):
         self.assertTrue(all(row.help is None for row in g.pages[1].schema.values()))
         g.choose("roster_p2", 0)
         self.assertEqual(coop_roster.load(self.coop / "coop_roster_config.json").p2, coop_roster.BALTHIER_ID)
+
+    def test_minimal_page_when_colors_do_not_fit(self) -> None:
+        lua = self.start(add_results=(False, False))
+        ids = [row.id for row in lua.globals().pages[1].schema.values() if row.id]
+        self.assertFalse([i for i in ids if i.startswith("theme")])
+        self.assertIn("pad_p1", ids)
+
+    def test_color_rows_use_carousels(self) -> None:
+        lua = self.start()
+        rows = {row.id: row for row in lua.globals().pages[1].schema.values() if row.id}
+        self.assertEqual(rows["theme_p1"].type, "carousel")
+        self.assertEqual(rows["theme_Vaan"].type, "carousel")
+        self.assertTrue(all(len(row.options) <= 6 for row in rows.values() if row.type == "toggle"))
+        self.assertFalse(any("Rejected" in text for text in lua.globals().printed.values()))
 
     def test_no_coop_folder_registers_nothing(self) -> None:
         shutil.rmtree(self.coop)

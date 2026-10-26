@@ -93,7 +93,10 @@ end
 
 local onResetDamage
 
-local function buildSchema(compact)
+-- Toggles take at most six options; the seven colors need a carousel.
+-- level 1: full page; 2: no per-character colors or help; 3: no colors at all.
+local function buildSchema(level)
+  local compact = level > 1
   local schema = {}
   local function row(entry)
     if compact then entry.help = nil end
@@ -120,17 +123,19 @@ local function buildSchema(compact)
   row({id = "desktop", label = "Keyboard and mouse", type = "toggle", options = DESKTOP_LABELS, default = 2,
     help = "Player who uses the keyboard and mouse. Rebind buttons in IvaliceTogetherConfig.exe."})
 
-  divider("Colors")
-  row({id = "themeMode", label = "Menu colors follow", type = "toggle", options = {"Character", "Player"}, default = 0,
-    help = "Character: each character keeps its own color. Player: each player keeps one color."})
-  for n = 1, 3 do
-    row({id = "theme_p" .. n, label = "Player " .. n .. " color", type = "toggle", options = THEME_LABELS, default = 0,
-      help = "This player's color when colors follow the player."})
-  end
-  if not compact then
-    for _, character in ipairs(model.MAIN_CHARACTERS) do
-      row({id = "theme_" .. character.name, label = character.name .. "'s color", type = "toggle", options = THEME_LABELS,
-        default = indexOf(model.PRESETS, character.theme), help = "Color used when " .. character.name .. " is controlled by a player."})
+  if level < 3 then
+    divider("Colors")
+    row({id = "themeMode", label = "Menu colors follow", type = "toggle", options = {"Character", "Player"}, default = 0,
+      help = "Character: each character keeps its own color. Player: each player keeps one color."})
+    for n = 1, 3 do
+      row({id = "theme_p" .. n, label = "Player " .. n .. " color", type = "carousel", options = THEME_LABELS, default = 0,
+        help = "This player's color when colors follow the player."})
+    end
+    if level == 1 then
+      for _, character in ipairs(model.MAIN_CHARACTERS) do
+        row({id = "theme_" .. character.name, label = character.name .. "'s color", type = "carousel", options = THEME_LABELS,
+          default = indexOf(model.PRESETS, character.theme), help = "Color used when " .. character.name .. " is controlled by a player."})
+      end
     end
   end
 
@@ -159,14 +164,18 @@ local function addPage(candidate)
   return ok and added ~= false
 end
 
-local page = buildSchema(false)
-if not addPage(page) then
-  page = buildSchema(true)
-  if not addPage(page) then
-    print(PREFIX .. "couldn't add the Mod Config page.")
-    return
+local page
+for level = 1, 3 do
+  local candidate = buildSchema(level)
+  if addPage(candidate) then
+    page = candidate
+    if level > 1 then print(PREFIX .. "added a reduced page (level " .. level .. ") after the menu rejected the full one.") end
+    break
   end
-  print(PREFIX .. "added the compact page (menu text space is limited).")
+end
+if not page then
+  print(PREFIX .. "couldn't add the Mod Config page.")
+  return
 end
 
 local present = {}
