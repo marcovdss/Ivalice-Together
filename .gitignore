@@ -42,6 +42,7 @@ ferramentas/*
 !ferramentas/analyze_action_queue_trace.py
 !ferramentas/build_public_release.py
 !ferramentas/controller_config_gui.py
+!ferramentas/gerar_padroes_menu_lua.py
 !ferramentas/headless_targeting.py
 !ferramentas/interaction_transaction_model.py
 !ferramentas/live_inventory.py
