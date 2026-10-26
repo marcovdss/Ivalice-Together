@@ -26,6 +26,7 @@ import controller_bindings as controls  # noqa: E402
 import coop_roster  # noqa: E402
 import launcher_core  # noqa: E402
 import menu_themes  # noqa: E402
+import session_state  # noqa: E402
 
 try:
     from lupa.lua55 import LuaRuntime
@@ -179,6 +180,38 @@ class InGameMenuLuaTests(unittest.TestCase):
                 self.assertEqual(self.text(write(self.model, p2, p3, all_, role, member)), tmp.read_text(encoding="utf-8"))
         finally:
             tmp.unlink(missing_ok=True)
+
+    def test_roster_swap_keeps_both_seats(self) -> None:
+        swap = self.lua.eval(
+            "function(model, p2, p3, role, member) local r = model.swapRoster({p2=p2, p3=p3, startWithAll=true}, role, member) return r.p2, r.p3 end")
+        self.assertEqual(swap(self.model, 4, 3, "p3", 4), (3, 4))
+        self.assertEqual(swap(self.model, 4, 3, "p2", 2), (2, 3))
+        self.assertEqual(swap(self.model, None, 3, "p2", 3), (3, None))
+        self.assertEqual(swap(self.model, 4, 3, "p2", None), (None, 3))
+
+    # -- session_config.json ---------------------------------------------
+
+    def test_live_seat_edits_load_through_python(self) -> None:
+        seat = self.lua.eval(
+            "function(model, doc, role, member) local ok, why = model.seatLive(doc, role, member) return ok, why end")
+        tmp = self.scratch / "session_config.json"
+        cases = [((0, 4, 3, 3), "p2", 3, (0, 3, 4)), ((0, 4, 3, 3), "p3", 2, (0, 4, 2)),
+                 ((0, 4, 3, 3), "p2", 4, (0, 4, 3)), ((4, 2, 3, 3), "p3", 4, None),
+                 ((0, 4, 3, 3), "p3", None, None), ((0, 4, None, 2), "p3", 2, None)]
+        for (p1, p2, p3, count), role, member, expected in cases:
+            session_state.save_identity(session_state.SessionIdentity(p1, p2, p3, count), tmp)
+            doc = self.decode(self.json, tmp.read_text(encoding="utf-8"))
+            ok, _ = seat(self.model, doc, role, member)
+            identity = session_state.SessionIdentity.from_config(session_state.normalize_config(json.loads(self.text(doc))))
+            seats = (identity.p1_party_member_id, identity.p2_party_member_id, identity.p3_party_member_id)
+            if expected is None:
+                self.assertFalse(ok, (p1, p2, p3, role, member))
+                self.assertEqual(seats, (p1, p2, p3))
+            else:
+                self.assertTrue(ok)
+                self.assertEqual(seats, expected)
+        ok, _ = seat(self.model, self.doc({"version": 2, "players": {}}), "p2", 3)
+        self.assertFalse(ok)
 
     # -- menu_theme_config.json ------------------------------------------
 

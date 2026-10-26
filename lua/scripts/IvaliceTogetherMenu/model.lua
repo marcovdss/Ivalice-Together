@@ -221,6 +221,57 @@ return function(json, defaults)
     return result
   end
 
+  -- Taking the other player's character swaps the two seats, so neither is
+  -- left empty (the configurator empties the other seat instead).
+  function M.swapRoster(roster, role, member)
+    local other = role == "p2" and "p3" or "p2"
+    local previous = roster[role]
+    local result = M.assignRoster(roster, role, member)
+    if member ~= nil and roster[other] == member and previous ~= nil then
+      result[other] = previous
+    end
+    return result
+  end
+
+  ---------------------------------------------------------------------------
+  -- session_config.json: the running co-op's live seats. The runtime polls it
+  -- and reconciles it with the active party, so only seats that already exist
+  -- are edited, and Player 1's character is never moved.
+
+  M.SESSION_CONFIG_VERSION = 1
+
+  function M.sessionSeats(doc)
+    if not json.isObject(doc) or doc.version ~= M.SESSION_CONFIG_VERSION or not json.isObject(doc.players) then
+      return nil
+    end
+    local seats = {}
+    for _, player in ipairs(M.PLAYERS) do
+      local seat = doc.players[player]
+      local id = json.isObject(seat) and seat.party_member_id or nil
+      seats[player] = isInteger(id) and id or nil
+    end
+    return seats
+  end
+
+  -- Returns true when the live seat was changed, or false and a reason.
+  function M.seatLive(doc, role, member)
+    assert(role == "p2" or role == "p3", "role must be 'p2' or 'p3'")
+    local seats = M.sessionSeats(doc)
+    if not seats then return false, "no running co-op session file" end
+    if member == nil then return false, "an empty seat applies from the next start" end
+    if seats.p1 == member then return false, "Player 1 is controlling that character" end
+    if seats[role] == nil or not json.isObject(doc.players[role]) then
+      return false, "that seat is not part of the running session"
+    end
+    if seats[role] == member then return true end
+    local other = role == "p2" and "p3" or "p2"
+    if seats[other] == member then
+      json.set(doc.players[other], "party_member_id", seats[role])
+    end
+    json.set(doc.players[role], "party_member_id", member)
+    return true
+  end
+
   function M.writeRoster(roster)
     local doc = json.object()
     json.set(doc, "version", M.ROSTER_CONFIG_VERSION)

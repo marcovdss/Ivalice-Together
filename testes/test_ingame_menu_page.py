@@ -19,6 +19,7 @@ import controller_bindings as controls  # noqa: E402
 import coop_roster  # noqa: E402
 import launcher_core  # noqa: E402
 import menu_themes  # noqa: E402
+import session_state  # noqa: E402
 
 try:
     from lupa.lua55 import LuaRuntime
@@ -91,6 +92,8 @@ class InGameMenuPageTests(unittest.TestCase):
         controller["version"] = version
         (self.coop / "controller_config.json").write_text(json.dumps(controller, indent=2) + "\n", encoding="utf-8")
         coop_roster.save(coop_roster.default_roster(), self.coop / "coop_roster_config.json")
+        # A running session: P1 Vaan, P2 Basch, P3 Balthier (the roster defaults).
+        session_state.save_identity(session_state.SessionIdentity(0, 4, 3, 3), self.coop / "session_config.json")
         launcher_core.save_launcher_config(dict(launcher_core.DEFAULT_LAUNCHER_CONFIG), self.coop / "launcher_config.json")
         menu_themes.save_selection(menu_themes.default_selection(), self.coop / "menu_theme_config.json")
         previous = Path.cwd()
@@ -128,10 +131,12 @@ class InGameMenuPageTests(unittest.TestCase):
     def test_choices_write_files_the_runtime_reads(self) -> None:
         lua = self.start()
         g = lua.globals()
-        g.choose("roster_p3", 2)  # Basch moves from P2 to P3
+        g.choose("roster_p3", 2)  # Basch moves from P2 to P3: the seats swap
         roster = coop_roster.load(self.coop / "coop_roster_config.json")
-        self.assertEqual((roster.p2, roster.p3), (None, coop_roster.BASCH_ID))
-        self.assertEqual(g.shown["roster_p2"], 5)  # refreshed: Nobody
+        self.assertEqual((roster.p2, roster.p3), (coop_roster.BALTHIER_ID, coop_roster.BASCH_ID))
+        self.assertEqual(g.shown["roster_p2"], 0)  # refreshed: Balthier
+        live = session_state.load_config(self.coop / "session_config.json")["players"]
+        self.assertEqual((live["p2"]["party_member_id"], live["p3"]["party_member_id"]), (3, 4))
 
         g.choose("pad_p2", 3)  # P2 takes the free Pad 3
         devices = controls.load_config(self.coop / "controller_config.json")["devices"]
@@ -163,6 +168,29 @@ class InGameMenuPageTests(unittest.TestCase):
         g.dialogs[1].onClose(0)
         self.assertEqual(launcher_core.load_launcher_config(self.coop / "launcher_config.json")["damage_meter_session_id"], 2)
         self.assertFalse(list(self.coop.glob("*.menu.tmp")))
+
+    def test_character_seats_change_live_where_possible(self) -> None:
+        lua = self.start()
+        g = lua.globals()
+        path = self.coop / "session_config.json"
+        def seats():
+            players = session_state.load_config(path)["players"]
+            return tuple(players[p]["party_member_id"] for p in ("p1", "p2", "p3"))
+        g.choose("roster_p2", 1)  # Fran into P2's seat, live
+        self.assertEqual(seats(), (0, 2, 3))
+        self.assertEqual(coop_roster.load(self.coop / "coop_roster_config.json").p2, coop_roster.FRAN_ID)
+        g.choose("roster_p2", 5)  # Nobody: next start only
+        self.assertEqual(seats(), (0, 2, 3))
+        self.assertIsNone(coop_roster.load(self.coop / "coop_roster_config.json").p2)
+        self.assertTrue(any("saved for the next start" in t for t in g.printed.values()))
+        session_state.save_identity(session_state.SessionIdentity(4, 2, 3, 3), path)  # P1 now leads as Basch
+        g.choose("roster_p3", 2)  # Basch is Player 1's character: roster only
+        self.assertEqual(seats(), (4, 2, 3))
+        self.assertTrue(any("Player 1 is controlling" in t for t in g.printed.values()))
+        path.unlink()  # no running session: roster still saved
+        g.choose("roster_p3", 4)
+        self.assertEqual(coop_roster.load(self.coop / "coop_roster_config.json").p3, coop_roster.PENELO_ID)
+        self.assertFalse(path.exists())
 
     def test_player_one_never_loses_their_input(self) -> None:
         lua = self.start()

@@ -22,6 +22,7 @@ local FILES = {
   roster = COOP .. "coop_roster_config.json",
   theme = COOP .. "menu_theme_config.json",
   controller = COOP .. "controller_config.json",
+  session = COOP .. "session_config.json",
 }
 local MARKER = COOP .. model.DISABLED_MARKER
 
@@ -111,9 +112,9 @@ local function buildSchema(level)
     help = "On: Vaan starts with Party, Gambits and the five allies unlocked. Off: characters join with the story." .. NEXT_START})
   -- Six names in a row run off the screen; carousels show one at a time.
   row({id = "roster_p2", label = "Player 2 character", type = "carousel", options = ROSTER_LABELS, default = 2,
-    help = "Character Player 2 controls. Picking Player 3's character leaves Player 3 empty." .. NEXT_START})
+    help = "Character Player 2 controls. Picking Player 3's character swaps them. Applies at once if that character is in your active party; otherwise from the next start."})
   row({id = "roster_p3", label = "Player 3 character", type = "carousel", options = ROSTER_LABELS, default = 0,
-    help = "Character Player 3 controls. Picking Player 2's character leaves Player 2 empty." .. NEXT_START})
+    help = "Character Player 3 controls. Picking Player 2's character swaps them. Applies at once if that character is in your active party; otherwise from the next start."})
 
   divider("Controllers")
   for n = 1, 3 do
@@ -292,7 +293,16 @@ end
 for _, role in ipairs({"p2", "p3"}) do
   handlers["roster_" .. role] = function(value)
     local member = model.ROSTER_MEMBERS[value + 1]
-    editRoster(function(roster) return model.assignRoster(roster, role, member and member.id or nil) end)
+    local id = member and member.id or nil
+    editRoster(function(roster) return model.swapRoster(roster, role, id) end)
+    -- The running co-op follows session_config.json within a quarter second.
+    local session = readDocument(FILES.session)
+    local live, reason = model.seatLive(session, role, id)
+    if live then
+      writeDocument(FILES.session, session)
+    elseif reason then
+      print(PREFIX .. "Player " .. role:sub(2) .. " character saved for the next start: " .. reason)
+    end
   end
 end
 
