@@ -106,7 +106,8 @@ class InGameMenuPageTests(unittest.TestCase):
         self.assertEqual(g.shown["desktop"], 2)  # Player 2
         self.assertEqual(g.shown["theme_p2"], menu_themes.PRESETS and list(menu_themes.PRESETS).index("emerald"))
         self.assertEqual(g.shown["coopEnabled"], 0)
-        self.assertTrue(g.active["pad_p1"])
+        self.assertFalse(g.active["pad_p1"])
+        self.assertTrue(g.active["pad_p2"])
         self.assertIn("Ivalice Together menu: page ready.", list(g.printed.values()))
 
     def test_choices_write_files_the_runtime_reads(self) -> None:
@@ -117,13 +118,16 @@ class InGameMenuPageTests(unittest.TestCase):
         self.assertEqual((roster.p2, roster.p3), (None, coop_roster.BASCH_ID))
         self.assertEqual(g.shown["roster_p2"], 5)  # refreshed: Nobody
 
-        g.choose("pad_p2", 1)  # P2 takes Pad 1 from P1
+        g.choose("pad_p2", 3)  # P2 takes the free Pad 3
         devices = controls.load_config(self.coop / "controller_config.json")["devices"]
-        self.assertEqual((devices["p1"], devices["p2"]), (None, 0))
-        self.assertEqual(g.shown["pad_p1"], 0)
+        self.assertEqual((devices["p1"], devices["p2"]), (0, 2))
+        g.choose("pad_p3", 3)  # P3 takes Pad 3; P2 gets P3's previous (none)
+        devices = controls.load_config(self.coop / "controller_config.json")["devices"]
+        self.assertEqual((devices["p2"], devices["p3"]), (None, 2))
+        self.assertEqual(g.shown["pad_p2"], 0)
 
-        g.choose("desktop", 1)
-        self.assertEqual(controls.desktop_owner(controls.load_config(self.coop / "controller_config.json")), "p1")
+        g.choose("desktop", 3)
+        self.assertEqual(controls.desktop_owner(controls.load_config(self.coop / "controller_config.json")), "p3")
 
         g.choose("themeMode", 1)
         g.choose("theme_Vaan", list(menu_themes.PRESETS).index("ruby"))
@@ -144,6 +148,35 @@ class InGameMenuPageTests(unittest.TestCase):
         g.dialogs[1].onClose(0)
         self.assertEqual(launcher_core.load_launcher_config(self.coop / "launcher_config.json")["damage_meter_session_id"], 2)
         self.assertFalse(list(self.coop.glob("*.menu.tmp")))
+
+    def test_player_one_never_loses_their_input(self) -> None:
+        lua = self.start()
+        g = lua.globals()
+        path = self.coop / "controller_config.json"
+        self.assertFalse(g.active["pad_p1"])
+        before = path.read_bytes()
+        g.choose("pad_p1", 2)  # P1 moving to Pad 2
+        g.choose("pad_p1", 0)  # P1 to no pad
+        g.choose("pad_p2", 1)  # P2 taking P1's Pad 1
+        g.choose("pad_p3", 1)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(g.shown["pad_p1"], 1)
+        self.assertEqual(g.shown["pad_p2"], 0)  # display reverted
+        self.assertEqual(sum("belongs to Player 1" in text or "only be changed" in text for text in g.printed.values()), 4)
+        g.choose("desktop", 1)  # giving the keyboard to P1 is fine
+        self.assertEqual(controls.desktop_owner(controls.load_config(path)), "p1")
+        self.assertFalse(g.active["desktop"])
+        after = path.read_bytes()
+        g.choose("desktop", 2)  # but taking it from P1 is refused
+        g.choose("desktop", 0)
+        self.assertEqual(path.read_bytes(), after)
+        self.assertEqual(g.shown["desktop"], 1)
+
+    def test_wide_rows_are_carousels(self) -> None:
+        lua = self.start()
+        rows = {row.id: row for row in lua.globals().pages[1].schema.values() if row.id}
+        for row_id in ("roster_p2", "roster_p3", "pad_p1", "pad_p2", "pad_p3", "desktop"):
+            self.assertEqual(rows[row_id].type, "carousel", row_id)
 
     def test_coop_switch_uses_the_runtime_marker(self) -> None:
         lua = self.start()

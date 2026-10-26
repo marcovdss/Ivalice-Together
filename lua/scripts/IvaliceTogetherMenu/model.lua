@@ -578,5 +578,23 @@ return function(json, defaults)
     json.set(doc, "desktop", desktop)
   end
 
+  -- The person using the Mod Menu is Player 1; a live change that takes
+  -- their pad or keyboard away leaves nobody able to undo it.
+  function M.controllerChangeKeepsP1(doc, player, assignment)
+    if player == "p1" then return false, "Player 1's controller can only be changed in IvaliceTogetherConfig.exe" end
+    local p1 = M.normalizeAssignment(field(field(doc, "devices"), "p1"))
+    if assignment ~= nil and M.assignmentsOverlap(doc, p1, assignment) then
+      return false, "that pad belongs to Player 1; change it in IvaliceTogetherConfig.exe"
+    end
+    return true
+  end
+
+  function M.desktopChangeKeepsP1(doc, owner)
+    if M.readControllers(doc).desktopOwner == "p1" and owner ~= "p1" then
+      return false, "Player 1 uses the keyboard and mouse; change that in IvaliceTogetherConfig.exe"
+    end
+    return true
+  end
+
   return M
 end

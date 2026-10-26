@@ -109,19 +109,21 @@ local function buildSchema(level)
     default = 0, help = "Turns co-op on or off." .. NEXT_START})
   row({id = "rosterAll", label = "Start with all characters", type = "toggle", options = ON_OFF, default = 0,
     help = "On: Vaan starts with Party, Gambits and the five allies unlocked. Off: characters join with the story." .. NEXT_START})
-  row({id = "roster_p2", label = "Player 2 character", type = "toggle", options = ROSTER_LABELS, default = 2,
+  -- Six names in a row run off the screen; carousels show one at a time.
+  row({id = "roster_p2", label = "Player 2 character", type = "carousel", options = ROSTER_LABELS, default = 2,
     help = "Character Player 2 controls. Picking Player 3's character leaves Player 3 empty." .. NEXT_START})
-  row({id = "roster_p3", label = "Player 3 character", type = "toggle", options = ROSTER_LABELS, default = 0,
+  row({id = "roster_p3", label = "Player 3 character", type = "carousel", options = ROSTER_LABELS, default = 0,
     help = "Character Player 3 controls. Picking Player 2's character leaves Player 2 empty." .. NEXT_START})
 
   divider("Controllers")
   for n = 1, 3 do
-    row({id = "pad_p" .. n, label = "Player " .. n .. " controller", type = "toggle", options = PAD_LABELS,
+    row({id = "pad_p" .. n, label = "Player " .. n .. " controller", type = "carousel", options = PAD_LABELS,
       default = n == 1 and 1 or 0,
-      help = "Controller this player uses. Taking another player's pad swaps them. Other pad: a non-XInput pad paired in IvaliceTogetherConfig.exe."})
+      help = n == 1 and "Change Player 1's controller in IvaliceTogetherConfig.exe, so you never lose control of this menu."
+        or "Controller this player uses. Player 1's pad stays with Player 1. Other pad: a non-XInput pad paired in IvaliceTogetherConfig.exe."})
   end
-  row({id = "desktop", label = "Keyboard and mouse", type = "toggle", options = DESKTOP_LABELS, default = 2,
-    help = "Player who uses the keyboard and mouse. Rebind buttons in IvaliceTogetherConfig.exe."})
+  row({id = "desktop", label = "Keyboard and mouse", type = "carousel", options = DESKTOP_LABELS, default = 2,
+    help = "Player who uses the keyboard and mouse. If Player 1 has them, change that in IvaliceTogetherConfig.exe. Rebind buttons there too."})
 
   if level < 3 then
     divider("Colors")
@@ -223,10 +225,10 @@ local function refresh()
     local controllers = model.readControllers(controllerDoc)
     for n = 1, 3 do
       setValue("pad_p" .. n, padIndex(controllers.devices["p" .. n]))
-      setActive("pad_p" .. n, editable)
+      setActive("pad_p" .. n, editable and n ~= 1)
     end
     setValue("desktop", controllers.desktopOwner and tonumber(controllers.desktopOwner:sub(2)) or 0)
-    setActive("desktop", editable)
+    setActive("desktop", editable and controllers.desktopOwner ~= "p1")
     setValue("themeMode", theme.mode == "player" and 1 or 0)
     for n = 1, 3 do setValue("theme_p" .. n, indexOf(model.PRESETS, theme.players["p" .. n])) end
     for _, character in ipairs(model.MAIN_CHARACTERS) do
@@ -289,14 +291,24 @@ for n = 1, 3 do
   handlers["pad_" .. player] = function(value)
     -- "Other pad" only names an SDL pairing made in the configurator.
     if value == 5 then return end
-    editControllers(function(doc) model.assignController(doc, player, value > 0 and value - 1 or nil) end)
+    local target = value > 0 and value - 1 or nil
+    editControllers(function(doc)
+      local ok, reason = model.controllerChangeKeepsP1(doc, player, target)
+      if not ok then error(reason, 0) end
+      model.assignController(doc, player, target)
+    end)
   end
   handlers["theme_" .. player] = function(value) editTheme("player:" .. player, model.PRESETS[value + 1]) end
   handlers["battleSound_" .. player] = function(value) editLauncher("battleMenuSound:" .. player, value == 0) end
 end
 
 handlers.desktop = function(value)
-  editControllers(function(doc) model.setDesktopOwner(doc, value > 0 and "p" .. value or nil) end)
+  local owner = value > 0 and "p" .. value or nil
+  editControllers(function(doc)
+    local ok, reason = model.desktopChangeKeepsP1(doc, owner)
+    if not ok then error(reason, 0) end
+    model.setDesktopOwner(doc, owner)
+  end)
 end
 
 handlers.themeMode = function(value) editTheme("mode", value == 1 and "player" or "character") end
