@@ -188,12 +188,22 @@ end
 local refreshing = false
 local snapshot = {}
 
+-- What each row currently shows (set by us or picked by the player), so a
+-- refresh only touches rows whose value really changed.
+local shownValue, shownActive = {}, {}
+
 local function setValue(id, value)
-  if present[id] then modmenu.setValue(ID, id, value) end
+  if present[id] and shownValue[id] ~= value then
+    shownValue[id] = value
+    modmenu.setValue(ID, id, value)
+  end
 end
 
 local function setActive(id, active)
-  if present[id] and modmenu.setActive then modmenu.setActive(ID, id, active) end
+  if present[id] and modmenu.setActive and shownActive[id] ~= active then
+    shownActive[id] = active
+    modmenu.setActive(ID, id, active)
+  end
 end
 
 local function rosterIndex(member)
@@ -340,22 +350,40 @@ onResetDamage = function()
   end
 end
 
+local function refreshAndRemember()
+  refresh()
+  for _, path in pairs(FILES) do snapshot[path] = readText(path) end
+  snapshot[MARKER] = readText(MARKER)
+end
+
+-- Setting a control's value from inside its own change callback crashed the
+-- game (a refused pad choice snapped the carousel back mid-callback), so
+-- callbacks only save; the page catches up from a timer afterwards.
+local REFRESH_DELAY_MS = 100
+local refreshPending = false
+local function scheduleRefresh()
+  if type(event) ~= "table" or not event.executeAfterMs then return refreshAndRemember() end
+  if refreshPending then return end
+  refreshPending = true
+  event.executeAfterMs(REFRESH_DELAY_MS, function()
+    refreshPending = false
+    refreshAndRemember()
+  end)
+end
+
 for id, handler in pairs(handlers) do
   if present[id] then
     modmenu.registerCallback(ID, id, function(_, _, value)
       if refreshing then return end
+      shownValue[id] = value
       local ok, err = pcall(handler, value)
       if not ok then print(PREFIX .. tostring(err)) end
-      refresh()
-      for _, path in pairs(FILES) do snapshot[path] = readText(path) end
-      snapshot[MARKER] = readText(MARKER)
+      scheduleRefresh()
     end)
   end
 end
 
-refresh()
-for _, path in pairs(FILES) do snapshot[path] = readText(path) end
-snapshot[MARKER] = readText(MARKER)
+refreshAndRemember()
 
 -- Follow edits made by IvaliceTogetherConfig.exe while the game runs.
 local POLL_MS = 1500

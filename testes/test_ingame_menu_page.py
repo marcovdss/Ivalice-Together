@@ -42,7 +42,11 @@ modmenu = {
     if result then pages[#pages + 1] = page end
     return result
   end,
-  setValue = function(mod, id, value) shown[id] = value end,
+  setValue = function(mod, id, value)
+    -- Setting the row being changed from its own callback crashed the game.
+    if id == inCallback then error("setValue on " .. id .. " inside its own callback") end
+    shown[id] = value
+  end,
   setActive = function(mod, id, value) active[id] = value end,
   registerCallback = function(mod, id, fn) callbacks[id] = fn end,
 }
@@ -51,7 +55,18 @@ event = {executeAfterMs = function(ms, fn) timers[#timers + 1] = fn end,
   registerEventAsync = function(name, fn) if name == "onInitDone" then inits[#inits + 1] = fn end end}
 dialog = {show = function(options) dialogs[#dialogs + 1] = options end}
 print = function(text) printed[#printed + 1] = text end
-function choose(id, value) callbacks[id]("IvaliceTogether", id, value) end
+-- Like the real menu: the row shows the pick, the callback runs, then the
+-- frame's timers fire (each pending timer once).
+function choose(id, value)
+  shown[id] = value
+  inCallback = id
+  local ok, err = pcall(callbacks[id], "IvaliceTogether", id, value)
+  inCallback = nil
+  if not ok then error(err) end
+  local pending = timers
+  timers = {}
+  for _, fn in ipairs(pending) do fn() end
+end
 function tick() local fn = table.remove(timers, 1); if fn then fn() end end
 function initDone() for _, fn in ipairs(inits) do fn() end end
 function press(id) for _, row in ipairs(pages[#pages].schema) do if row.id == id then row.callback() end end end
@@ -171,6 +186,8 @@ class InGameMenuPageTests(unittest.TestCase):
         g.choose("desktop", 0)
         self.assertEqual(path.read_bytes(), after)
         self.assertEqual(g.shown["desktop"], 1)
+        # Snapping a refused row back from its own callback crashed the game.
+        self.assertFalse([t for t in g.printed.values() if "refresh failed" in t])
 
     def test_wide_rows_are_carousels(self) -> None:
         lua = self.start()
