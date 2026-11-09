@@ -2900,8 +2900,15 @@ def install_p2_interaction_geometry_result_logger(process):
     if len(cave) >= INTERACTION_GEOMETRY_RESULT_R12:
         raise RuntimeError("interaction-geometry-result code overlaps data")
     cave += b"\x00" * (INTERACTION_GEOMETRY_RESULT_R12 - len(cave))
-    cave += b"\x00" * 16
+    # The R12/R13/count tail is written by the game whenever P2's interaction
+    # scan runs. Write it separately so the install manifest digests only the
+    # immutable code: otherwise a scan between commit and layout validation
+    # (common once P2 owns a pad) fails the check and Together refuses to start.
     process.write(INTERACTION_GEOMETRY_RESULT_CAVE, cave)
+    process.write(
+        INTERACTION_GEOMETRY_RESULT_CAVE + INTERACTION_GEOMETRY_RESULT_R12,
+        b"\x00" * 16,
+    )
     if not already_installed:
         process.patch_code(INTERACTION_GEOMETRY_RESULT_SITE, patch)
 

@@ -3367,3 +3367,24 @@ def test_anti_libra_follows_the_native_target_info_check():
     assert runtime.actor_has_anti_libra(0x5000) is True
     memory["site"] = bytes.fromhex("39c09090909090")  # No Anti-Libra patch
     assert runtime.actor_has_anti_libra(0x5000) is False
+
+
+def test_geometry_logger_keeps_its_mutable_tail_out_of_the_code_write():
+    coop = live.legacy.coop
+    writes = []
+
+    class Process:
+        def read(self, address, size):
+            return coop.INTERACTION_GEOMETRY_RESULT_ORIGINAL[:size]
+
+        def write(self, address, payload):
+            writes.append((address, bytes(payload)))
+
+        def patch_code(self, address, payload):
+            writes.append(("patch", address))
+
+    with mock.patch.object(coop, "interaction_scan_entry_address", return_value=0x5000):
+        coop.install_p2_interaction_geometry_result_logger(Process())
+    cave = coop.INTERACTION_GEOMETRY_RESULT_CAVE
+    assert writes[0][0] == cave and len(writes[0][1]) == coop.INTERACTION_GEOMETRY_RESULT_R12
+    assert writes[1] == (cave + coop.INTERACTION_GEOMETRY_RESULT_R12, b"\x00" * 16)
