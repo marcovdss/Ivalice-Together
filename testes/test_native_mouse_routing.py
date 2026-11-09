@@ -778,10 +778,15 @@ def test_adopted_complete_leader_policy_preserves_shoulders_and_is_exact_noop():
     process.events.clear()
 
     assert bridge.leader_replacement
-    assert (
-        bridge.policy.p1_semantic_mask & live.NATIVE_INPUT_LEADER_MASK
-        == live.NATIVE_INPUT_LEADER_MASK
+    p1_vertical = live.native_semantic_mask(
+        live.NATIVE_DIALOG_UP, live.NATIVE_DIALOG_DOWN
     )
+    p1_horizontal = live.native_semantic_mask(
+        live.NATIVE_DIALOG_LEFT, live.NATIVE_DIALOG_RIGHT
+    )
+    # P1 keeps native left/right (focus target) while menus are closed.
+    assert bridge.policy.p1_semantic_mask & p1_vertical == p1_vertical
+    assert not bridge.policy.p1_semantic_mask & p1_horizontal
     assert (
         bridge.policy.other_semantic_mask & live.NATIVE_INPUT_LEADER_MASK
         == live.NATIVE_INPUT_LEADER_MASK
@@ -1553,10 +1558,11 @@ def test_native_frontend_close_settle_rearms_replacement_firewalls(
 
     assert bridge.policy.p1_semantic_mask & live.NATIVE_INPUT_COMMAND_MASK
     assert bridge.policy.other_semantic_mask & live.NATIVE_INPUT_COMMAND_MASK
-    assert (
-        bridge.policy.p1_semantic_mask & live.NATIVE_INPUT_DIRECTION_MASK
-        == live.NATIVE_INPUT_DIRECTION_MASK
+    # P1 withholds the leader (vertical) directions; left/right stay native.
+    p1_vertical = live.native_semantic_mask(
+        live.NATIVE_DIALOG_UP, live.NATIVE_DIALOG_DOWN
     )
+    assert bridge.policy.p1_semantic_mask & p1_vertical == p1_vertical
     assert (
         bridge.policy.other_semantic_mask & live.NATIVE_INPUT_DIRECTION_MASK
         == live.NATIVE_INPUT_DIRECTION_MASK
@@ -1598,15 +1604,19 @@ def test_forbidden_native_frontend_instance_never_ages_into_external_trust(
         assert not runtime.native_frontend_custom_suspended
         assert not runtime.native_frontend_observed_open
         assert runtime.native_frontend_open_candidate_since is None
+        vertical = live.native_semantic_mask(
+            live.NATIVE_DIALOG_UP, live.NATIVE_DIALOG_DOWN
+        )
         for semantic_mask in (
             bridge.policy.p1_semantic_mask,
             bridge.policy.other_semantic_mask,
         ):
             assert semantic_mask & live.NATIVE_INPUT_COMMAND_MASK
-            assert (
-                semantic_mask & live.NATIVE_INPUT_LEADER_MASK
-                == live.NATIVE_INPUT_LEADER_MASK
-            )
+            assert semantic_mask & vertical == vertical
+        assert (
+            bridge.policy.other_semantic_mask & live.NATIVE_INPUT_LEADER_MASK
+            == live.NATIVE_INPUT_LEADER_MASK
+        )
     bridge.pulse.assert_called_once_with(live.NATIVE_DIALOG_CANCEL)
 
 
@@ -1745,13 +1755,17 @@ def test_ucoff_without_a_dead_leader_latch_keeps_command_and_leader_firewalls(
     assert not runtime.dead_leader_menu_gate.pending
     assert bridge.policy.p1_semantic_mask & live.NATIVE_INPUT_COMMAND_MASK
     assert bridge.policy.other_semantic_mask & live.NATIVE_INPUT_COMMAND_MASK
+    vertical = live.native_semantic_mask(
+        live.NATIVE_DIALOG_UP, live.NATIVE_DIALOG_DOWN
+    )
+    assert bridge.policy.other_semantic_mask & live.NATIVE_INPUT_DIRECTION_MASK == (
+        live.NATIVE_INPUT_DIRECTION_MASK
+    )
     for semantic_mask in (
         bridge.policy.p1_semantic_mask,
         bridge.policy.other_semantic_mask,
     ):
-        assert semantic_mask & live.NATIVE_INPUT_DIRECTION_MASK == (
-            live.NATIVE_INPUT_DIRECTION_MASK
-        )
+        assert semantic_mask & vertical == vertical
         # Pause remains an explicit native exception and is never swallowed by
         # the replacement firewall itself.
         assert not semantic_mask & live.native_semantic_mask(live.NATIVE_DIALOG_PAUSE)
@@ -3222,3 +3236,45 @@ def test_m2_m3_and_pointer_axes_keep_the_stock_native_boundary():
     assert {live.NATIVE_DESKTOP_BUTTON_SITE, live.NATIVE_DESKTOP_WHEEL_SITE}.isdisjoint(
         {0x7A30BB}
     )
+
+
+def test_p1_leader_policy_withholds_only_vertical_dpad_while_menus_closed():
+    def policy(**overrides):
+        arguments = dict(
+            p1_replacement=True,
+            non_p1_command_blocked=True,
+            custom_directional_owner=False,
+            p1_menu_owns_lb=False,
+            party_menu_blocked=True,
+            quickening_block_mask=0,
+            leader_replacement=True,
+            capture_desktop_events=False,
+            p1_native_slot=0,
+        )
+        arguments.update(overrides)
+        return live.native_input_policy(**arguments)
+
+    up_down = live.native_semantic_mask(live.NATIVE_DIALOG_UP, live.NATIVE_DIALOG_DOWN)
+    left_right = live.native_semantic_mask(
+        live.NATIVE_DIALOG_LEFT, live.NATIVE_DIALOG_RIGHT
+    )
+    closed = policy()
+    assert closed.p1_semantic_mask & up_down == up_down
+    assert not closed.p1_semantic_mask & left_right
+    assert closed.other_semantic_mask & left_right == left_right
+    # An open custom menu still owns every direction for P1.
+    opened = policy(custom_directional_owner=True)
+    assert opened.p1_semantic_mask & left_right == left_right
+
+
+def test_p1_pad_confirm_accepts_combat_prompt_state_one():
+    runtime = live.CoopMenuRuntime.__new__(live.CoopMenuRuntime)
+    runtime.p1_model = mock.Mock(mode=live.MenuMode.CLOSED)
+    runtime.model = mock.Mock(mode=live.MenuMode.LIST)
+    runtime.p3_model = mock.Mock(mode=live.MenuMode.LIST)
+    runtime.p1_foes = runtime.foes = runtime.p3_foes = []
+    for state, ready in ((1, True), (2, True)):
+        runtime.native_p1_interaction = mock.Mock(return_value=(state, 0x10000E, 0, -1))
+        assert runtime._world_interactions().p1_ready is ready
+    runtime.native_p1_interaction = mock.Mock(return_value=None)
+    assert runtime._world_interactions().p1_ready is False

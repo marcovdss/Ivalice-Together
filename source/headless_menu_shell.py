@@ -2065,7 +2065,11 @@ def native_input_policy(
         p1_mask |= NATIVE_INPUT_P1_CUSTOM_DIRECTION_MASK
         other_mask |= NATIVE_INPUT_CUSTOM_DIRECTION_MASK
     if leader_replacement:
-        p1_mask |= NATIVE_INPUT_LEADER_MASK
+        # P1 only needs vertical d-pad withheld: up/down open the custom Leader
+        # selector.  Left/right have no custom use while every menu is closed
+        # (an open menu adds them back through custom_directional_owner), so
+        # they stay native for P1, matching the keyboard (e.g. focus target).
+        p1_mask |= native_semantic_mask(NATIVE_DIALOG_UP, NATIVE_DIALOG_DOWN)
         other_mask |= NATIVE_INPUT_LEADER_MASK
     if p1_menu_owns_lb:
         p1_mask |= NATIVE_INPUT_LB_MASK
@@ -4052,8 +4056,10 @@ class NativeDialogInputBridge:
             quickening_block_mask |= QUICKENING_BLOCK_CONFIRM
         self.quickening_block_mask = quickening_block_mask
         self.non_p1_command_blocked = bool(other_mask & NATIVE_INPUT_COMMAND_MASK)
+        # P1's leader contribution is vertical only (see native_input_policy).
+        p1_leader_mask = native_semantic_mask(NATIVE_DIALOG_UP, NATIVE_DIALOG_DOWN)
         self.leader_replacement = bool(
-            p1_mask & NATIVE_INPUT_LEADER_MASK == NATIVE_INPUT_LEADER_MASK
+            p1_mask & p1_leader_mask == p1_leader_mask
             and other_mask & NATIVE_INPUT_LEADER_MASK
             == NATIVE_INPUT_LEADER_MASK
         )
@@ -12417,7 +12423,10 @@ class CoopMenuRuntime:
             p1=p1,
             p2=p2,
             p3=p3,
-            p1_ready=bool(p1 is not None and p1[0] >= 2),
+            # In combat FF12 keeps a door/brazier prompt at state 1 and only
+            # selects it when confirm is pressed (keyboard Enter interacts at
+            # state 1).  Accept the same prompt for P1's pad confirm.
+            p1_ready=bool(p1 is not None and p1[0] >= 1),
             p2_present=bool(p2 is not None and p2[0] >= 2),
             p3_present=bool(p3 is not None and p3[0] >= 2),
         )
