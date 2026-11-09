@@ -17,6 +17,8 @@ import session_state
 class MemoryProcess:
     def __init__(self):
         self.data = {}
+        # A vanilla executable: the native target-info Anti-Libra test is intact.
+        self.put(0x2BFFAA, bytes.fromhex("f6871101000002"))
 
     def put(self, address, payload):
         for offset, value in enumerate(payload):
