@@ -3273,8 +3273,37 @@ def test_p1_pad_confirm_accepts_combat_prompt_state_one():
     runtime.model = mock.Mock(mode=live.MenuMode.LIST)
     runtime.p3_model = mock.Mock(mode=live.MenuMode.LIST)
     runtime.p1_foes = runtime.foes = runtime.p3_foes = []
+    runtime.native_interaction_router = mock.Mock(p1_confirm_fallback=None)
+    runtime.native_interaction_router.prompt_interaction.return_value = None
+    runtime.native_dialog_bridge = mock.Mock()
     for state, ready in ((1, True), (2, True)):
         runtime.native_p1_interaction = mock.Mock(return_value=(state, 0x10000E, 0, -1))
         assert runtime._world_interactions().p1_ready is ready
     runtime.native_p1_interaction = mock.Mock(return_value=None)
     assert runtime._world_interactions().p1_ready is False
+
+
+def test_p1_confirm_fallback_pulses_native_confirm_when_actor_is_busy():
+    runtime = live.CoopMenuRuntime.__new__(live.CoopMenuRuntime)
+    runtime.p1_model = mock.Mock(mode=live.MenuMode.CLOSED)
+    runtime.model = mock.Mock(mode=live.MenuMode.LIST)
+    runtime.p3_model = mock.Mock(mode=live.MenuMode.LIST)
+    runtime.p1_foes = runtime.foes = runtime.p3_foes = []
+    router = live.NativeWorldInteractionRouter.__new__(live.NativeWorldInteractionRouter)
+    runtime.native_interaction_router = router
+    runtime.native_dialog_bridge = mock.Mock()
+    runtime.native_p1_interaction = mock.Mock(return_value=(1, 0x10000E, 0, -1))
+    runtime._world_interactions()
+    router.p1_confirm_fallback()
+    runtime.native_dialog_bridge.pulse.assert_called_once_with(live.NATIVE_DIALOG_CONFIRM)
+
+    router.p1_confirm_fallback = mock.Mock()
+    router.active = False
+    router.process = mock.Mock()
+    router.process.u32.return_value = 0x100010
+    router.process.u64.return_value = 1 << 24  # WEAPON_HANDLING_FLAG
+    router._prepare_action = mock.Mock(return_value=True)
+    with mock.patch.object(live.native_interaction, "resolve_handle", return_value=0x1234),             mock.patch.object(live.native_interaction, "is_treasure_object", return_value=False):
+        assert router.trigger_native_p1(0x10000E, owner_actor=0x5000) is True
+    router.p1_confirm_fallback.assert_called_once_with()
+    router.process.write.assert_not_called()

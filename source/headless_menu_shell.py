@@ -5963,7 +5963,18 @@ class NativeWorldInteractionRouter:
                 self.process.u32(owner_actor + P2_ACTION_STATE_OFFSET),
                 self.process.u32(owner_actor + P2_ACTION_CURRENT_OFFSET),
             ):
-                return False
+                # The follower-oriented gate refuses while P1 is mid-action
+                # (combat).  Keyboard Enter still interacts there because the
+                # game decides natively, so hand P1 the same native confirm.
+                fallback = getattr(self, "p1_confirm_fallback", None)
+                if fallback is None:
+                    return False
+                fallback()
+                print(
+                    f"P1_NATIVE_INTERACTION_CONFIRM_PULSED handle={handle:#x}",
+                    flush=True,
+                )
+                return True
             old_descriptor = self.process.read(NATIVE_INTERACTION_DESCRIPTOR, 0x18)
         except (OSError, RuntimeError, struct.error):
             return False
@@ -12393,6 +12404,10 @@ class CoopMenuRuntime:
         )
 
     def _world_interactions(self) -> WorldInteractions:
+        router = self.native_interaction_router
+        if getattr(router, "p1_confirm_fallback", None) is None:
+            bridge = self.native_dialog_bridge
+            router.p1_confirm_fallback = lambda: bridge.pulse(NATIVE_DIALOG_CONFIRM)
         p1 = (
             self.native_p1_interaction()
             if self.p1_model.mode is MenuMode.CLOSED
