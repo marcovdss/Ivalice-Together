@@ -3346,3 +3346,24 @@ def test_p1_pad_cancel_reaches_the_game_only_while_menus_are_closed():
     press(menu_open)
     menu_open.native_dialog_bridge.pulse.assert_not_called()
     menu_open.dispatch_p1.assert_called_once_with(live.InputCommand.BACK)
+
+
+def test_anti_libra_follows_the_native_target_info_check():
+    runtime = live.CoopMenuRuntime.__new__(live.CoopMenuRuntime)
+    memory = {}
+    stock = bytes.fromhex("f6871101000002")
+
+    class Process:
+        def u64(self, address):
+            return 0x9000 if address == 0x5000 + 0x698 else 0
+
+        def read(self, address, size):
+            if address == 0x2BFFAA:
+                return memory["site"]
+            return bytes([live.ANTI_LIBRA_AUGMENT_MASK]) * size
+
+    runtime.process = Process()
+    memory["site"] = stock
+    assert runtime.actor_has_anti_libra(0x5000) is True
+    memory["site"] = bytes.fromhex("39c09090909090")  # No Anti-Libra patch
+    assert runtime.actor_has_anti_libra(0x5000) is False

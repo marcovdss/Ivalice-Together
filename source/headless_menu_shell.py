@@ -10141,6 +10141,11 @@ class CoopMenuRuntime:
         if not actor:
             return False
         try:
+            # The native target-info Anti-Libra test (``test byte [rdi+0x111],2``
+            # at 0x2BFFAA) can be patched out, e.g. by The Insurgent's Bountiful
+            # Bundle "No Anti-Libra".  The card follows whatever the game does.
+            if self.process.read(0x2BFFAA, 7) != bytes.fromhex("f6871101000002"):
+                return False
             bkbi = self.process.u64(actor + 0x698)
             if not bkbi:
                 return False
