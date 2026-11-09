@@ -3307,3 +3307,42 @@ def test_p1_confirm_fallback_pulses_native_confirm_when_actor_is_busy():
         assert router.trigger_native_p1(0x10000E, owner_actor=0x5000) is True
     router.p1_confirm_fallback.assert_called_once_with()
     router.process.write.assert_not_called()
+
+
+def test_p1_pad_cancel_reaches_the_game_only_while_menus_are_closed():
+    def runtime_with(mode):
+        runtime = live.CoopMenuRuntime.__new__(live.CoopMenuRuntime)
+        runtime.p1_model = mock.Mock(mode=mode)
+        runtime.native_dialog_bridge = mock.Mock()
+        runtime.p1_leader_selector_active = mock.Mock(return_value=False)
+        runtime.dispatch_p1 = mock.Mock()
+        runtime.close_p1_leader_selector = mock.Mock()
+        runtime.p1_menu_reopen_allowed_at = 0.0
+        return runtime
+
+    def press(runtime, **overrides):
+        arguments = dict(
+            now=1.0, actor=0x5000, native_open=False, binding_enabled=True,
+            custom_menu_allowed=True, confirm_reopen_ready=True,
+            controls=live.PlayerMenuInput(cancel=True, cancel_edge=True),
+            interactions=live.WorldInteractions(None, None, None, False, False, False),
+        )
+        arguments.update(overrides)
+        return runtime._handle_p1_battle_input(**arguments)
+
+    closed = runtime_with(live.MenuMode.CLOSED)
+    press(closed)
+    closed.native_dialog_bridge.pulse.assert_called_once_with(live.NATIVE_DIALOG_CANCEL)
+
+    held = runtime_with(live.MenuMode.CLOSED)
+    press(held, controls=live.PlayerMenuInput(cancel=True, cancel_edge=False))
+    held.native_dialog_bridge.pulse.assert_not_called()
+
+    disabled = runtime_with(live.MenuMode.CLOSED)
+    press(disabled, binding_enabled=False)
+    disabled.native_dialog_bridge.pulse.assert_not_called()
+
+    menu_open = runtime_with(live.MenuMode.LIST)
+    press(menu_open)
+    menu_open.native_dialog_bridge.pulse.assert_not_called()
+    menu_open.dispatch_p1.assert_called_once_with(live.InputCommand.BACK)

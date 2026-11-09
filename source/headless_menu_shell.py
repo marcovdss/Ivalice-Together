@@ -12480,6 +12480,12 @@ class CoopMenuRuntime:
             return False
         if not binding_enabled:
             return False
+        if self.p1_model.mode is MenuMode.CLOSED and controls.cancel_edge:
+            # Keyboard Backspace (Circle) reaches the game natively, e.g. to
+            # close the target-info panel.  While no custom menu owns B, give
+            # P1's pad the same native cancel.
+            self.native_dialog_bridge.pulse(NATIVE_DIALOG_CANCEL)
+            print("P1_NATIVE_CANCEL_PULSED", flush=True)
         if self.p1_model.mode is not MenuMode.CLOSED:
             if not custom_menu_allowed:
                 return False
