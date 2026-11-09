@@ -3388,3 +3388,31 @@ def test_geometry_logger_keeps_its_mutable_tail_out_of_the_code_write():
     cave = coop.INTERACTION_GEOMETRY_RESULT_CAVE
     assert writes[0][0] == cave and len(writes[0][1]) == coop.INTERACTION_GEOMETRY_RESULT_R12
     assert writes[1] == (cave + coop.INTERACTION_GEOMETRY_RESULT_R12, b"\x00" * 16)
+
+
+def test_p1_target_page_closes_the_native_target_info_window():
+    def run(mode, window, now=1.0, close_at=0.0):
+        runtime = live.CoopMenuRuntime.__new__(live.CoopMenuRuntime)
+        runtime.p1_model = mock.Mock(mode=mode)
+        runtime.native_dialog_bridge = mock.Mock()
+        runtime.p1_leader_selector_active = mock.Mock(return_value=False)
+        runtime.dispatch_p1 = mock.Mock()
+        runtime.native_target_info_close_at = close_at
+        runtime.process = mock.Mock()
+        runtime.process.u64.side_effect = lambda address: (
+            0x11DEBE80 if address == 0x209BE80 else window
+        )
+        runtime._handle_p1_battle_input(
+            now=now, actor=0x5000, native_open=False, binding_enabled=True,
+            custom_menu_allowed=True, confirm_reopen_ready=True,
+            controls=live.PlayerMenuInput(),
+            interactions=live.WorldInteractions(None, None, None, False, False, False),
+        )
+        return runtime
+
+    opened = run(live.MenuMode.TARGET, 0x11DF5B98)
+    opened.native_dialog_bridge.pulse.assert_called_once_with(live.NATIVE_DIALOG_CANCEL)
+    assert opened.native_target_info_close_at == 1.5
+    run(live.MenuMode.TARGET, 0).native_dialog_bridge.pulse.assert_not_called()
+    run(live.MenuMode.LIST, 0x11DF5B98).native_dialog_bridge.pulse.assert_not_called()
+    run(live.MenuMode.TARGET, 0x11DF5B98, now=1.2, close_at=1.5).native_dialog_bridge.pulse.assert_not_called()

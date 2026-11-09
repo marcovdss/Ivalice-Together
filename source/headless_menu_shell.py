@@ -12491,6 +12491,23 @@ class CoopMenuRuntime:
             # P1's pad the same native cancel.
             self.native_dialog_bridge.pulse(NATIVE_DIALOG_CANCEL)
             print("P1_NATIVE_CANCEL_PULSED", flush=True)
+        if (
+            self.p1_model.mode is MenuMode.TARGET
+            and not self.p1_leader_selector_active()
+            and now >= getattr(self, "native_target_info_close_at", 0.0)
+        ):
+            # The native TARGET INFO window (UI manager + 0x9FD0, non-null only
+            # while open) overlaps P1's target card.  Close it natively with
+            # the same cancel that keyboard Backspace sends.
+            try:
+                manager = self.process.u64(0x209BE80)
+                window = self.process.u64(manager + 0x9FD0) if manager else 0
+            except (OSError, RuntimeError, struct.error):
+                window = 0
+            if window:
+                self.native_dialog_bridge.pulse(NATIVE_DIALOG_CANCEL)
+                self.native_target_info_close_at = now + 0.5
+                print("P1_NATIVE_TARGET_INFO_CLOSED", flush=True)
         if self.p1_model.mode is not MenuMode.CLOSED:
             if not custom_menu_allowed:
                 return False
